@@ -1,0 +1,62 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Bookmark {
+  id    String @id @default(cuid())
+  title String
+  url   String
+  listId String
+  list  List @relation(fields: [listId], references: [id])
+  owner String
+  createdAt DateTime @default(now())
+  readBy String[]
+}
+
+model List {
+  id    String @id @default(cuid())
+  name  String
+  owner String
+  public Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bookmarks Bookmark[]
+}
+
+model BlogPost {
+  id    String @id @default(cuid())
+  title String
+  public Boolean @default(false)
+  tags String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  writer String
+  content Json?
+  blogid String
+  draftContent Json?
+}
+
+model RSSFeed {
+  id    String @id @default(cuid())
+  url   String
+  owner String
+  createdAt DateTime @default(now())
+}
+
+model BlogSubscription {
+  id    String @id @default(cuid())
+  blogId String @unique
+  plan String @default("free")
+}

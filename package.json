@@ -1,0 +1,23 @@
+{
+  "name": "wordscribe-backend",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.ts"
+  },
+  "dependencies": {
+    "@clerk/express": "^1.7.14",
+    "@mozilla/readability": "^0.6.0",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "editorjs-html": "^4.0.5",
+    "express": "^5.1.0",
+    "jsdom": "^26.1.0",
+    "svix": "^1.70.1"
+  }
+}
