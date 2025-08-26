@@ -60,3 +60,41 @@ model BlogSubscription {
   blogId String @unique
   plan String @default("free")
 }
+
+model SocialCommunity {
+  id    String @id @default(cuid())
+  name  String
+  admins String[]
+  members String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  posts SocialPost[]
+  description String?
+}
+
+model SocialPost {
+  id    String @id @default(cuid())
+  author String
+  description String?
+  link String
+  createdAt DateTime @default(now())
+  boostedBy String[]
+  deboostedBy String[]
+  comments SocialComment[]
+  communityId String
+  community SocialCommunity @relation(fields: [communityId], references: [id])
+}
+
+model SocialComment {
+  id        String   @id @default(cuid())
+  post      SocialPost @relation(fields: [postId], references: [id])
+  postId    String
+  author    String
+  content   String
+  createdAt DateTime @default(now())
+  parentId  String?
+  parent    SocialComment? @relation("CommentReplies", fields: [parentId], references: [id])
+  children  SocialComment[] @relation("CommentReplies")
+  
+  @@index([parentId])
+}

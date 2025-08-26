@@ -743,6 +743,303 @@ app.get("/", (req, res) => {
   res.json({ message: 'Hello World!' })
 })
 
+app.get("/v1/social/me/communities", requireAuth(), async (req, res) => {
+  const user = getAuth(req)
+  if (!user.userId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  console.log("request received")
+  console.log(user)
+  const ismember = await prisma.socialCommunity.findMany({
+    where: {
+      members: {
+        has: user.userId
+      }
+    }
+  })
+  const isadmin = await prisma.socialCommunity.findMany({
+    where: {
+      admins: {
+        has: user.userId
+      }
+    }
+  })
+  return res.json({
+    member: ismember,
+    admin: isadmin
+  })
+})
+
+app.get("/v1/social/communities/id/:id/info", async (req, res) => {
+  const community = await prisma.socialCommunity.findUnique({
+    where: {
+      id: req.params.id
+    }
+  })
+  return res.json(community)
+})
+
+app.post("/v1/social/communities", requireAuth(), express.json(), async (req, res) => {
+  const user = getAuth(req)
+  if (!user.userId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  console.log("request received")
+  const community = await prisma.socialCommunity.create({
+    data: {
+      name: req.body.name,
+      description: req.body.description,
+      admins: [user.userId],
+      members: [user.userId]
+    },
+  })
+  return res.json(community)
+})
+
+async function PrepareFeed(feed: SocialPost[]) {
+  const DECAY_FACTOR = 24 * 60 * 60 * 1000;
+
+  feed.forEach((post) => {
+      const netVotes = post.boostedBy.length - post.deboostedBy.length;
+      const hoursSinceCreation = (new Date() - post.createdAt) / (60 * 60 * 1000);
+      const gravity = 1.8;
+      post.points = netVotes
+      post.algopoints = post.points / Math.pow((hoursSinceCreation + 2), gravity);
+  });
+  feed.sort((a, b) => b.algopoints - a.algopoints);
+  await Promise.all(feed.map(async (post) => {
+    var user = await clerkClient.users.getUser(post.author)
+    post.userInfo = {
+      name: {
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+      imageUrl: user.imageUrl,
+      username: user.username,
+    }
+  }))
+  return feed
+}
+
+app.get("/v1/social/me/feed", requireAuth(), async (req, res) => {
+  const user = getAuth(req)
+  if (!user.userId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  console.log("request received")
+  console.log(user)
+  const feed = await prisma.socialPost.findMany({
+    where: {
+      communityId: {
+        in: await prisma.socialCommunity.findMany({
+          where: {
+            members: {
+              has: user.userId
+            }
+          }
+        }).then((communities) => communities.map((community) => community.id))
+      }
+    },
+    include: {
+      community: true,
+      _count: {select: {comments: true}}
+    }
+  })
+  var newfeed = await PrepareFeed(feed)
+  return res.json(newfeed)
+})
+
+app.get("/v1/social/communities/id/:id/posts", async (req, res) => {
+  const community = await prisma.socialCommunity.findUnique({
+    where: {
+      id: req.params.id
+    }
+  })
+  const posts = await prisma.socialPost.findMany({
+    where: {
+      communityId: community.id
+    },
+    include: {
+      community: true,
+      _count: {select: {comments: true}}
+    }
+  })
+  var newfeed = await PrepareFeed(posts)
+  return res.json(newfeed)
+})
+
+app.post("/v1/social/communities/id/:id/posts", requireAuth(), express.json(), async (req, res) => {
+  console.log("post making")
+  const user = getAuth(req)
+  if (!user.userId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  console.log("request received")
+  const community = await prisma.socialCommunity.findUnique({
+    where: {
+      id: req.params.id
+    }
+  })
+  if (!community) {
+    return res.status(404).json({ error: 'Community not found' })
+  }
+  if(!req.body.link) {
+    return res.status(400).json({ error: 'Missing link' })
+  }
+  const post = await prisma.socialPost.create({
+    data: {
+      author: user.userId,
+      communityId: community.id,
+      link: req.body.link,
+    },
+  })
+  console.log(post)
+  return res.json(post)
+})
+
+app.post("/v1/social/posts/id/:id/boost", requireAuth(), express.json(), async (req, res) => {
+  console.log("post boosting")
+  const user = getAuth(req)
+  if (!user.userId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  console.log("request received")
+  const socialpost = await prisma.socialPost.findUnique({
+    where: {
+      id: req.params.id
+    }
+  })
+  if (!socialpost) {
+    return res.status(404).json({ error: 'Post not found' })
+  }
+  let post
+  if(req.body.state === false && socialpost.boostedBy.includes(user.userId)) {
+    post = await prisma.socialPost.update({
+      where: {
+        id: req.params.id
+      },
+      data: {
+        boostedBy: {
+          set: socialpost.boostedBy.filter((id) => id !== user.userId)
+        }
+      }
+    })
+  } else if(req.body.state === true && !socialpost.boostedBy.includes(user.userId)) {
+    post = await prisma.socialPost.update({
+      where: {
+        id: req.params.id
+      },
+      data: {
+        boostedBy: {
+          push: user.userId
+        }
+      }
+    })
+  }
+  return res.json(post)
+})
+
+app.post("/v1/social/communities/id/:id/membership", requireAuth(), express.json(), async (req, res) => {
+  console.log("community membership")
+  const user = getAuth(req)
+  if (!user.userId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  console.log("request received")
+  const community = await prisma.socialCommunity.findUnique({
+    where: {
+      id: req.params.id
+    }
+  })
+  if (!community) {
+    return res.status(404).json({ error: 'Community not found' })
+  }
+  let community1
+  if(!community.members.includes(user.userId) && req.body.state === true) {
+    community1 = await prisma.socialCommunity.update({
+      where: {
+        id: req.params.id
+      },
+      data: {
+        members: {
+          push: user.userId
+        }
+      }
+    })
+  } else if(community.members.includes(user.userId) && req.body.state === false) {
+    community1 = await prisma.socialCommunity.update({
+      where: {
+        id: req.params.id
+      },
+      data: {
+        members: {
+          set: community.members.filter((id) => id !== user.userId)
+        }
+      }
+    })
+  }
+  return res.json(community1)
+})
+
+app.post("/v1/social/posts/id/:id/deboost", requireAuth(), express.json(), async (req, res) => {
+  console.log("post deboosting")
+  const user = getAuth(req)
+  if (!user.userId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  console.log("request received")
+  const socialpost = await prisma.socialPost.findUnique({
+    where: {
+      id: req.params.id
+    }
+  })
+  if (!socialpost) {
+    return res.status(404).json({ error: 'Post not found' })
+  }
+  let post
+  if(req.body.state === false && socialpost.deboostedBy.includes(user.userId)) {
+    post = await prisma.socialPost.update({
+      where: {
+        id: req.params.id
+      },
+      data: {
+        deboostedBy: {
+          set: socialpost.deboostedBy.filter((id) => id !== user.userId)
+        }
+      }
+    })
+  } else if(req.body.state === true && !socialpost.deboostedBy.includes(user.userId)) {
+    post = await prisma.socialPost.update({
+      where: {
+        id: req.params.id
+      },
+      data: {
+        deboostedBy: {
+          push: user.userId
+        }
+      }
+    })
+  }
+  return res.json(post)
+})
+
+app.get("/v1/social/communities/search", requireAuth(), async (req, res) => {
+  const user = getAuth(req)
+  if (!user.userId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  console.log("request received")
+  const communities = await prisma.socialCommunity.findMany({
+    where: {
+      name: {
+        contains: req.query.q as string,
+        mode: "insensitive"
+      }
+    }
+  })
+  return res.json(communities)
+})
+
 // Start the server and listen on the specified port
 app.listen(PORT, () => {
   console.log(`WordScribe Backend listening at http://localhost:${PORT}`)
